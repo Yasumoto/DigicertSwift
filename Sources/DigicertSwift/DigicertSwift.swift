@@ -30,13 +30,13 @@ public struct DigicertSwift {
 
      - parameters:
         - path: URL path to connect to (this is the API name)
-        - parameters: Used to build the query string
+        - queryParameters: Used to build the query string
         - method: Either GET or POST
         - body: sent during a POST request
         - debug: Print out request details
-    */
+     */
     func submitRequest(path: String,
-                       parameters: [String:String] = [:],
+                       queryParameters: [String:String] = [:],
                        method: String = "GET",
                        body: Data? = nil,
                        debug: Bool = false) -> Data? {
@@ -44,7 +44,7 @@ public struct DigicertSwift {
         var errorResponse: DigicertNetworkError? = nil
         var requestString = "\(baseDomain)\(path)"
         
-        for (key, value) in parameters {
+        for (key, value) in queryParameters {
             requestString.append("&\(key)=\(value)")
         }
         
@@ -55,13 +55,13 @@ public struct DigicertSwift {
             request.httpMethod = method
             if let requestBody = body {
                 request.httpBody = requestBody
-                //request.setValue("\(requestBody.)", forHTTPHeaderField: "Content-Length")
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             }
             request.setValue("application/json", forHTTPHeaderField: "Accept")
             request.setValue(apiKey, forHTTPHeaderField: authHeader)
             let task = session.dataTask(with: request) {
                 if let responded = $1 as? HTTPURLResponse {
-                    if responded.statusCode != 200 {
+                    if responded.statusCode != 200 && responded.statusCode != 201 {
                         print("Non-200 response was: \(responded)")
                         if let data = $0 {
                             do {
@@ -261,34 +261,38 @@ extension DigicertSwift {
      
      [API Documentation](https://www.digicert.com/services/v2/documentation/order/order-ssl-wildcard)
      
-     - parameters
-        - commonName: Name of the certificate
-        - csr: Full Certificate Signing Request as a string
-        - organizationId: Get your organization ID from the web UI
-        - validityYears: Number of years for the cert to be valid
+     - parameters:
+       - commonName: Name of the certificate
+       - csr: Full Certificate Signing Request as a string
+       - organizationId: Get your organization ID from the web UI
+       - validityYears: Number of years for the cert to be valid
      */
     public func requestWildcard(commonName: String,
                                 csr: String,
                                 organizationId: Int,
-                                validityYears: Int = 1) throws -> WildcardResponse? {
+                                validityYears: Int = 1,
+                                debug: Bool = false) throws -> WildcardResponse? {
         let requestOrganization = RequestOrganization(id: organizationId)
         let certificate = CertificateRequest(common_name: commonName, csr: csr, signature_hash: .sha256)
         let request = WildcardRequest(certificate: certificate, organization: requestOrganization, validity_years: validityYears)
+        if debug {
+            print(request)
+        }
         let body = try JSONEncoder().encode(request)
-        print(request)
-        print(body)
-        return nil/*
-         if let response = submitRequest(path: "certificate/ssl_wildcard",
-         method: "POST",
-         body: body,
-         debug: true) {
-         do {
-         return try JSONDecoder().decode(WildcardResponse.self, from: response)
-         } catch {
-         print("Couldn't parse response: \(error)")
-         throw DigicertError.responseParsingError
-         }
-         }
-         return nil*/
+        if let response = submitRequest(path: "order/certificate/ssl_wildcard",
+                                        method: "POST",
+                                        body: body,
+                                        debug: true) {
+            do {
+                return try JSONDecoder().decode(WildcardResponse.self, from: response)
+            } catch {
+                print("Couldn't parse response: \(error)")
+                if let response = String(bytes: response, encoding: .utf8) {
+                    print("Response: \(response)")
+                }
+                throw DigicertError.responseParsingError
+            }
+        }
+        return nil
     }
 }
