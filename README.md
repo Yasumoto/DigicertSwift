@@ -1,3 +1,3 @@
 # DigicertSwift
 
-A description of this package.
+Digicert API Client in Swift.
