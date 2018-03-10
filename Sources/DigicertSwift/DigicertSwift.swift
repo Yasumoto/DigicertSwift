@@ -25,6 +25,32 @@ public struct DigicertSwift {
         self.apiKey = apiKey
     }
 
+    public enum RequestStatus: String, Codable {
+        case pending, approved, rejected
+    }
+
+    public struct Request: Codable {
+        public let id: Int
+        public let status: RequestStatus
+    }
+
+    public struct CertificateSubmissionResponse: Codable {
+        public let id: Int
+        public let requests: [Request]
+    }
+
+    enum SignatureHash: String, Codable {
+        case sha256, sha384, sha512
+    }
+
+    struct ServerPlatform: Codable {
+        let id: Int
+    }
+
+    struct RequestOrganization: Codable {
+        let id: Int
+    }
+
     /**
      Submit a request to Digicert's API
 
@@ -210,15 +236,7 @@ extension DigicertSwift {
 }
 
 extension DigicertSwift {
-    enum SignatureHash: String, Codable {
-        case sha256, sha384, sha512
-    }
-    
-    struct ServerPlatform: Codable {
-        let id: Int
-    }
-    
-    struct CertificateRequest: Codable {
+    struct WildcardCertificate: Codable {
         let common_name: String
         let csr: String
         let signature_hash: SignatureHash
@@ -226,13 +244,10 @@ extension DigicertSwift {
         let server_platform: ServerPlatform? = nil
         let profile_option: String? = nil
     }
-    
-    struct RequestOrganization: Codable {
-        let id: Int
-    }
+
     
     struct WildcardRequest: Codable {
-        let certificate: CertificateRequest
+        let certificate: WildcardCertificate
         let organization: RequestOrganization
         let validity_years: Int
         let custom_expiration_date: String? = nil //TODO Make this YYYY-MM-DD format
@@ -242,38 +257,24 @@ extension DigicertSwift {
         let disable_ct: Bool? = nil
     }
     
-    public enum RequestStatus: String, Codable {
-        case pending, approved, rejected
-    }
-    
-    public struct Request: Codable {
-        public let id: Int
-        public let status: RequestStatus
-    }
-    
-    public struct WildcardResponse: Codable {
-        public let id: Int
-        public let requests: [Request]
-    }
-    
     /**
      Request a new Wildcard certificate
      
      [API Documentation](https://www.digicert.com/services/v2/documentation/order/order-ssl-wildcard)
      
      - parameters:
-       - commonName: Name of the certificate
-       - csr: Full Certificate Signing Request as a string
-       - organizationId: Get your organization ID from the web UI
-       - validityYears: Number of years for the cert to be valid
+        - commonName: Name of the certificate
+        - csr: Full Certificate Signing Request as a string
+        - organizationId: Get your organization ID from the web UI
+        - validityYears: Number of years for the cert to be valid
      */
     public func requestWildcard(commonName: String,
                                 csr: String,
                                 organizationId: Int,
                                 validityYears: Int = 1,
-                                debug: Bool = false) throws -> WildcardResponse? {
+                                debug: Bool = false) throws -> CertificateSubmissionResponse? {
         let requestOrganization = RequestOrganization(id: organizationId)
-        let certificate = CertificateRequest(common_name: commonName, csr: csr, signature_hash: .sha256)
+        let certificate = WildcardCertificate(common_name: commonName, csr: csr, signature_hash: .sha256)
         let request = WildcardRequest(certificate: certificate, organization: requestOrganization, validity_years: validityYears)
         if debug {
             print(request)
@@ -284,7 +285,72 @@ extension DigicertSwift {
                                         body: body,
                                         debug: true) {
             do {
-                return try JSONDecoder().decode(WildcardResponse.self, from: response)
+                return try JSONDecoder().decode(CertificateSubmissionResponse.self, from: response)
+            } catch {
+                print("Couldn't parse response: \(error)")
+                if let response = String(bytes: response, encoding: .utf8) {
+                    print("Response: \(response)")
+                }
+                throw DigicertError.responseParsingError
+            }
+        }
+        return nil
+    }
+}
+
+extension DigicertSwift {
+    struct CloudCertificate: Codable {
+        let common_name: String
+        let dns_names: [String]?
+        let csr: String
+        let signature_hash: SignatureHash
+        let organization_units: [String]? = nil
+        let server_platform: ServerPlatform? = nil
+        let profile_option: String? = nil
+    }
+
+    struct CloudRequest: Codable {
+        let certificate: CloudCertificate
+        let organization: RequestOrganization
+        let validity_years: Int
+        let custom_expiration_date: String? = nil //TODO Make this YYYY-MM-DD format
+        let comments: String? = nil
+        let disable_renewal_notifications: Bool? = nil
+        let renewal_of_order_id: Int? = nil
+        let disable_ct: Bool? = nil
+    }
+
+    /**
+     Request a new SSL Cloud certificate (with a large list of SANs)
+
+     [API Documentation](https://www.digicert.com/services/v2/documentation/order/order-ssl-cloud-wildcard)
+
+     - parameters:
+        - commonName: Name of the certificate
+        - sans: Additional domain names to secure
+        - csr: Full Certificate Signing Request as a string
+        - organizationId: Get your organization ID from the web UI
+        - validityYears: Number of years for the cert to be valid
+     */
+    public func requestCloud(commonName: String,
+                             sans: [String],
+                             csr: String,
+                             organizationId: Int,
+                             validityYears: Int = 1,
+                             debug: Bool = false) throws -> CertificateSubmissionResponse? {
+        let requestOrganization = RequestOrganization(id: organizationId)
+        let certificate = CloudCertificate(common_name: commonName, dns_names: sans, csr: csr, signature_hash: .sha256)
+        let request = CloudRequest(certificate: certificate, organization: requestOrganization, validity_years: validityYears)
+        if debug {
+            print(request)
+        }
+        let body = try JSONEncoder().encode(request)
+        if let response = submitRequest(path: "order/certificate/ssl_cloud_wildcard",
+                                        method: "POST",
+                                        body: body,
+                                        debug: true) {
+            do {
+                return try JSONDecoder().decode(CertificateSubmissionResponse.self, from: response)
             } catch {
                 print("Couldn't parse response: \(error)")
                 if let response = String(bytes: response, encoding: .utf8) {
