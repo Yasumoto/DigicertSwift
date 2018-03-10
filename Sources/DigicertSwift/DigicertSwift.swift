@@ -24,7 +24,17 @@ public struct DigicertSwift {
     public init(apiKey: String) {
         self.apiKey = apiKey
     }
-    
+
+    /**
+     Submit a request to Digicert's API
+
+     - parameters:
+        - path: URL path to connect to (this is the API name)
+        - parameters: Used to build the query string
+        - method: Either GET or POST
+        - body: sent during a POST request
+        - debug: Print out request details
+    */
     func submitRequest(path: String,
                        parameters: [String:String] = [:],
                        method: String = "GET",
